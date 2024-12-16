@@ -1,4 +1,5 @@
 import streamlit as st
+import os
 import requests
 from langchain_chroma import Chroma
 from langchain_core.documents import Document
@@ -11,9 +12,16 @@ from langchain_core.messages import AIMessage, HumanMessage
 from dotenv import load_dotenv
 
 load_dotenv()
+# Create a directory to persist the Chroma database
+CHROMA_PATH = "chroma_db"
+os.makedirs(CHROMA_PATH, exist_ok=True)
 
 
 def get_vectorstore_from_url(url):
+    # Create a directory to persist the Chroma database
+    CHROMA_PATH = "chroma_db"
+    os.makedirs(CHROMA_PATH, exist_ok=True)
+
     # get text and convert to document
     response = requests.get("https://r.jina.ai/" + url)
     document = Document(page_content=response.text, metadata={"source": url})
@@ -22,10 +30,9 @@ def get_vectorstore_from_url(url):
     text_splitter = RecursiveCharacterTextSplitter()
     document_chunks = text_splitter.split_documents([document])
 
-    # create a vectorstore from chunks
-    persist_directory = "chromadb_data"
+    # create a vectorstore from chunks with persistent storage
     vector_store = Chroma.from_documents(
-        document_chunks, OpenAIEmbeddings(), persist_directory=persist_directory
+        document_chunks, OpenAIEmbeddings(), persist_directory=CHROMA_PATH
     )
 
     return vector_store
@@ -101,14 +108,19 @@ else:
             AIMessage(content="Hello, I am a bot. How can I help you?"),
         ]
     if "vector_store" not in st.session_state:
-        persist_directory = "chromadb_data"
         try:
-            # Attempt to load an existing vector store
+            # Attempt to load an existing vector store with a persistent path
             st.session_state.vector_store = Chroma(
-                OpenAIEmbeddings(), persist_directory=persist_directory
+                persist_directory=CHROMA_PATH, embedding_function=OpenAIEmbeddings()
             )
-        except Exception:
-            # If it doesn't exist, create a new one
+
+            # Check if the vector store is empty
+            if st.session_state.vector_store._collection.count() == 0:
+                # Create a new vector store if the existing one is empty
+                st.session_state.vector_store = get_vectorstore_from_url(website_url)
+        except Exception as e:
+            st.error(f"Error loading vector store: {e}")
+            # Create a new vector store
             st.session_state.vector_store = get_vectorstore_from_url(website_url)
 
     # user input
